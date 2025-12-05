@@ -6,11 +6,11 @@
 .globl main
 
 main:
-    # Test 1: Valid colors
+    # valid
     li $a0, 0xF    # pc_bg
     li $a1, 0xF    # pc_fg  
-    li $a2, 0xF    # gc_bg
-    li $a3, 0xF    # gc_fg
+    li $a2, 0x3    # gc_bg
+    li $a3, 0x5    # gc_fg
     
     addi $sp, $sp, -4
     li $t0, 0x4    # err_bg
@@ -19,7 +19,6 @@ main:
     jal checkColors
     addi $sp, $sp, 4
     
-    # Expected: v0 = 0xFA35, v1 = 0x4
     move $a0, $v0
     li $v0, 34
     syscall
@@ -34,7 +33,7 @@ main:
     li $a0, '\n'
     syscall
     
-    # Test 2: Invalid colors (err_bg same as gc_fg)
+    # invalid
     li $a0, 0xC    # pc_bg
     li $a1, 0x0    # pc_fg
     li $a2, 0xA    # gc_bg
@@ -47,7 +46,6 @@ main:
     jal checkColors
     addi $sp, $sp, 4
     
-    # Expected: v0 = 0xFFFF, v1 = 0xFF
     move $a0, $v0
     li $v0, 34
     syscall
@@ -59,6 +57,5 @@ main:
     li $v0, 34
     syscall
     
-    # Exit
     li $v0, 10
     syscall
