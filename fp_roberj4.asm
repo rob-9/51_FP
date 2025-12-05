@@ -339,8 +339,140 @@ reset_done:
 ##########################################
 
 readFile:
-	# insert code here
-	li $v0, -1111 # replace this line
+	# int readFile(char[] filename, CColor boardColors)
+	# a0: filename
+	# a1: boardColors (CColor data structure)
+	
+	# save regs
+	addi $sp, $sp, -32
+	sw $ra, 28($sp)
+	sw $s0, 24($sp)
+	sw $s1, 20($sp)
+	sw $s2, 16($sp)
+	sw $s3, 12($sp)
+	sw $s4, 8($sp)
+	sw $s5, 4($sp)
+	sw $s6, 0($sp)
+	
+	move $s0, $a0    # filename
+	move $s1, $a1    # boardColors
+	li $s2, 0        # unique cells count
+	
+	# reset
+	move $a0, $s1    # boardColors
+	li $a1, 0x0      # any valid err_bg
+	li $a2, -1       # clear all
+	jal reset
+	bltz $v0, rf_error
+	
+	# open
+	move $a0, $s0    # filename
+	li $a1, 0        # read-only
+	li $a2, 0        # mode (ignored)
+	li $v0, 13       # open file
+	syscall
+	bltz $v0, rf_error
+	move $s3, $v0    # file descriptor
+	
+	addi $sp, $sp, -8
+	
+rf_loop:
+	move $a0, $s3    # file descriptor
+	move $a1, $sp    # buffer
+	li $a2, 5        # max chars
+	li $v0, 14       # read
+	syscall
+	blez $v0, rf_done  # eof or error
+	
+	# nullterm
+	add $t0, $sp, $v0
+	sb $zero, -1($t0)
+	
+	# get row, column from line
+	move $a0, $sp    # line
+	li $a1, 0        # flag = 0
+	jal getBoardInfo
+	li $t0, -1
+	beq $v0, $t0, rf_loop  # skip invalid
+	move $s4, $v0    # row
+	move $s5, $v1    # col
+	
+	# get value, type from line
+	move $a0, $sp    # line
+	li $a1, 1        # flag = 1
+	jal getBoardInfo
+	li $t0, -1
+	beq $v0, $t0, rf_loop  # skip invalid
+	move $s6, $v0    # val
+	
+	# determine color
+	li $t0, 'P'
+	beq $v1, $t0, rf_preset
+	
+	# game cell color
+	andi $t1, $s1, 0xF     # gc_fg
+	srl $t2, $s1, 4
+	andi $t2, $t2, 0xF     # gc_bg
+	sll $t3, $t2, 4
+	or $t3, $t3, $t1       # gc color byte
+	j rf_setcell
+	
+rf_preset:
+	# preset cell color
+	srl $t1, $s1, 8
+	andi $t1, $t1, 0xF     # pc_fg
+	srl $t2, $s1, 12
+	andi $t2, $t2, 0xF     # pc_bg
+	sll $t3, $t2, 4
+	or $t3, $t3, $t1       # pc color byte
+	
+rf_setcell:
+	# set cell
+	move $a0, $s4    # row
+	move $a1, $s5    # col
+	move $a2, $s6    # val
+	move $a3, $t3    # color
+	jal setCell
+	bltz $v0, rf_error
+	
+	# increment cnt
+	addi $s2, $s2, 1
+	
+	j rf_loop
+	
+rf_done:
+	# close file
+	move $a0, $s3
+	li $v0, 16
+	syscall
+	
+	addi $sp, $sp, 8
+	
+	# return
+	move $v0, $s2
+	j rf_cleanup
+	
+rf_error:
+	# close file if open
+	move $a0, $s3
+	li $v0, 16
+	syscall
+	
+	addi $sp, $sp, 8
+	
+	li $v0, -1
+	
+rf_cleanup:
+	# restore regs
+	lw $s6, 0($sp)
+	lw $s5, 4($sp)
+	lw $s4, 8($sp)
+	lw $s3, 12($sp)
+	lw $s2, 16($sp)
+	lw $s1, 20($sp)
+	lw $s0, 24($sp)
+	lw $ra, 28($sp)
+	addi $sp, $sp, 32
 	jr $ra
 
 ##########################################
@@ -348,8 +480,120 @@ readFile:
 ##########################################
 
 rowColCheck:
-	# insert code here
-	li $v0, 0xBEEF # replace this line
+	# (int, int) rowColCheck(int row, int col, int value, int flag)
+	# a0: row (0-8)
+	# a1: col (0-8)  
+	# a2: value (0-9)
+	# a3: flag (0=check row, non-zero=check col)
+	
+	# save registers
+	addi $sp, $sp, -24
+	sw $ra, 20($sp)
+	sw $s0, 16($sp)
+	sw $s1, 12($sp)
+	sw $s2, 8($sp)
+	sw $s3, 4($sp)
+	
+	# validate bounds
+	bltz $a0, rcc_error
+	li $t0, 8
+	bgt $a0, $t0, rcc_error
+	bltz $a1, rcc_error
+	bgt $a1, $t0, rcc_error
+	
+	# validate value (must be >= -1 and <= 9)
+	li $t0, -1
+	blt $a2, $t0, rcc_error
+	li $t0, 9
+	bgt $a2, $t0, rcc_error
+	
+	# save og params
+	move $s0, $a0        # original row
+	move $s1, $a1        # original col
+	move $s2, $a2        # original value
+	move $s3, $a3        # original flag
+	
+	# check flag 
+	beqz $s3, rcc_check_row
+	
+rcc_check_col:
+	# check column
+	li $t2, 0            # row counter
+rcc_col_loop:
+	# skip the target cell itself
+	beq $t2, $s0, rcc_col_next
+	
+	# get cell at (t2, s1)
+	move $a0, $t2        # row
+	move $a1, $s1        # col
+	jal getCell
+	bltz $v1, rcc_col_next  # skip if getCell error
+	beqz $v1, rcc_col_next  # skip empty cells (value 0)
+	
+	# check if value matches
+	beq $v1, $s2, rcc_found_conflict
+	
+rcc_col_next:
+	addi $t2, $t2, 1
+	li $t1, 9
+	blt $t2, $t1, rcc_col_loop
+	j rcc_no_conflict
+	
+rcc_check_row:
+	# check row
+	li $t2, 0            # col counter
+rcc_row_loop:
+	# skip target cell
+	beq $t2, $s1, rcc_row_next
+	
+	# get cell at (s0, t2)
+	move $a0, $s0        # row
+	move $a1, $t2        # col
+	jal getCell
+	bltz $v1, rcc_row_next  # skip if getCell error
+	beqz $v1, rcc_row_next  # skip empty cells (value 0)
+	
+	# check if value matches
+	beq $v1, $s2, rcc_found_conflict
+	
+rcc_row_next:
+	addi $t2, $t2, 1
+	li $t1, 9
+	blt $t2, $t1, rcc_row_loop
+	j rcc_no_conflict
+
+rcc_found_conflict:
+	# return position of conflicting cell
+	# for row: check conflict at (s0, t2)
+	# for col: check conflict at (t2, s1)
+	beqz $s3, rcc_row_conflict
+	# column conflict
+	move $v0, $t2        # conflicting row
+	move $v1, $s1        # same column
+	j rcc_done
+	
+rcc_row_conflict:
+	move $v0, $s0        # same row  
+	move $v1, $t2        # conflicting col
+	j rcc_done
+	
+rcc_no_conflict:
+	li $v0, -1
+	li $v1, -1
+	j rcc_done
+	
+rcc_error:
+	li $v0, -1
+	li $v1, -1
+	
+rcc_done:
+	# restore registers
+	lw $s3, 4($sp)
+	lw $s2, 8($sp)
+	lw $s1, 12($sp)
+	lw $s0, 16($sp)
+	lw $ra, 20($sp)
+	addi $sp, $sp, 24
 	jr $ra
 
 squareCheck:
