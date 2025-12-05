@@ -486,7 +486,7 @@ rowColCheck:
 	# a2: value (0-9)
 	# a3: flag (0=check row, non-zero=check col)
 	
-	# save registers
+	# save regs
 	addi $sp, $sp, -24
 	sw $ra, 20($sp)
 	sw $s0, 16($sp)
@@ -587,7 +587,7 @@ rcc_error:
 	li $v1, -1
 	
 rcc_done:
-	# restore registers
+	# restore regs
 	lw $s3, 4($sp)
 	lw $s2, 8($sp)
 	lw $s1, 12($sp)
@@ -597,8 +597,120 @@ rcc_done:
 	jr $ra
 
 squareCheck:
-	# insert code here
-	li $v0, 0xF0F0  # replace this line
+	# (int, int) squareCheck(int row, int col, int value)
+	# a0: row (0-8)
+	# a1: col (0-8)  
+	# a2: value (-1 to 9)
+	
+	# save regs
+	addi $sp, $sp, -32
+	sw $ra, 28($sp)
+	sw $s0, 24($sp)
+	sw $s1, 20($sp)
+	sw $s2, 16($sp)
+	sw $s3, 12($sp)
+	sw $s4, 8($sp)
+	sw $s5, 4($sp)
+	sw $s6, 0($sp)
+	
+	# validate bounds
+	bltz $a0, sq_error
+	li $t0, 8
+	bgt $a0, $t0, sq_error
+	bltz $a1, sq_error
+	bgt $a1, $t0, sq_error
+	
+	# validate value
+	li $t0, -1
+	blt $a2, $t0, sq_error
+	li $t0, 9
+	bgt $a2, $t0, sq_error
+	
+	# save params
+	move $s0, $a0        # target row
+	move $s1, $a1        # target col
+	move $s2, $a2        # target value
+	
+	# calculate square boundaries
+	li $t0, 3
+	div $s0, $t0         # row / 3
+	mflo $t1             # square_row = row / 3
+	mul $s3, $t1, $t0    # start_row = square_row * 3
+	
+	div $s1, $t0         # col / 3  
+	mflo $t1             # square_col = col / 3
+	mul $s4, $t1, $t0    # start_col = square_col * 3
+	
+	# calculate end bounaries
+	addi $s5, $s3, 2     # end_row = start_row + 2
+	addi $s6, $s4, 2     # end_col = start_col + 2
+	
+	# check all cells in square
+	move $t2, $s3        # current_row = start_row
+sq_row_loop:
+	move $t3, $s4        # current_col = start_col
+sq_col_loop:
+	# skip the target cell itself (if both row AND col match)
+	bne $t2, $s0, sq_check_cell  # if row doesn't match, check cell
+	bne $t3, $s1, sq_check_cell  # if col doesn't match, check cell
+	j sq_next_col                # both match, skip this cell
+	
+sq_check_cell:
+	# save loop counters before function call
+	addi $sp, $sp, -8
+	sw $t2, 4($sp)
+	sw $t3, 0($sp)
+	
+	# get cell at (t2, t3)
+	move $a0, $t2        # row
+	move $a1, $t3        # col
+	jal getCell
+	
+	# restore loop counters
+	lw $t3, 0($sp)
+	lw $t2, 4($sp)
+	addi $sp, $sp, 8
+	
+	bltz $v1, sq_next_col    # skip if getCell error
+	beqz $v1, sq_next_col    # skip empty cells (value 0)
+	
+	# check if value matches target
+	beq $v1, $s2, sq_found_conflict
+	
+sq_next_col:
+	addi $t3, $t3, 1
+	ble $t3, $s6, sq_col_loop
+	
+	# finished this row, move to next row
+	addi $t2, $t2, 1
+	ble $t2, $s5, sq_row_loop
+	
+	# no conflict found
+	li $v0, -1
+	li $v1, -1
+	j sq_done
+
+sq_found_conflict:
+	# return pos
+	move $v0, $t2        # conflicting row
+	move $v1, $t3        # conflicting col
+	j sq_done
+	
+sq_error:
+	li $v0, -1
+	li $v1, -1
+	
+sq_done:
+	# restore regs
+	lw $s6, 0($sp)
+	lw $s5, 4($sp)
+	lw $s4, 8($sp)
+	lw $s3, 12($sp)
+	lw $s2, 16($sp)
+	lw $s1, 20($sp)
+	lw $s0, 24($sp)
+	lw $ra, 28($sp)
+	addi $sp, $sp, 32
 	jr $ra
 
 check:
