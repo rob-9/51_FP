@@ -214,10 +214,21 @@ reset_preset_only:
 reset_preset_row:
 	li $s4, 0        # col
 reset_preset_col:
+	# save loop counters before function call
+	addi $sp, $sp, -8
+	sw $s3, 4($sp)
+	sw $s4, 0($sp)
+	
 	# get current cell
 	move $a0, $s3
 	move $a1, $s4
 	jal getCell
+	
+	# restore loop counters
+	lw $s4, 0($sp)
+	lw $s3, 4($sp)
+	addi $sp, $sp, 8
+	
 	bltz $v1, reset_error
 	
 	# check if game cell (fg matches gc_fg)
@@ -226,11 +237,22 @@ reset_preset_col:
 	j reset_preset_next
 	
 reset_clear_game_cell:
+	# save loop counters before function call
+	addi $sp, $sp, -8
+	sw $s3, 4($sp)
+	sw $s4, 0($sp)
+	
 	move $a0, $s3
 	move $a1, $s4
 	li $a2, 0        # clear
 	move $a3, $t2    # gc color
 	jal setCell
+	
+	# restore loop counters
+	lw $s4, 0($sp)
+	lw $s3, 4($sp)
+	addi $sp, $sp, 8
+	
 	bltz $v0, reset_error
 	
 reset_preset_next:
@@ -250,10 +272,21 @@ reset_conflicts:
 reset_conf_col:
 	li $s4, 0        # row
 reset_conf_row:
+	# save loop counters before function call  
+	addi $sp, $sp, -8
+	sw $s3, 4($sp)
+	sw $s4, 0($sp)
+	
 	# get cell
 	move $a0, $s4
 	move $a1, $s3
 	jal getCell
+	
+	# restore loop counters
+	lw $s4, 0($sp)
+	lw $s3, 4($sp)
+	addi $sp, $sp, 8
+	
 	bltz $v1, reset_error
 	
 	# check if bg matches err_bg
@@ -279,11 +312,23 @@ reset_conf_game:
 	andi $t5, $t5, 0xF    # gc_bg
 	sll $t6, $t5, 4
 	or $t6, $t6, $t3      # gc color
+	
+	# save loop counters before function call
+	addi $sp, $sp, -8
+	sw $s3, 4($sp)
+	sw $s4, 0($sp)
+	
 	move $a0, $s4
 	move $a1, $s3
 	li $a2, 0
 	move $a3, $t6
 	jal setCell
+	
+	# restore loop counters
+	lw $s4, 0($sp)
+	lw $s3, 4($sp)
+	addi $sp, $sp, 8
+	
 	bltz $v0, reset_error
 	j reset_conf_found
 	
@@ -293,11 +338,23 @@ reset_conf_preset:
 	andi $t5, $t5, 0xF    # pc_bg
 	sll $t6, $t5, 4
 	or $t6, $t6, $t4      # pc color
+	
+	# save loop counters before function call
+	addi $sp, $sp, -8
+	sw $s3, 4($sp)
+	sw $s4, 0($sp)
+	
 	move $a0, $s4
 	move $a1, $s3
 	li $a2, -1
 	move $a3, $t6
 	jal setCell
+	
+	# restore loop counters
+	lw $s4, 0($sp)
+	lw $s3, 4($sp)
+	addi $sp, $sp, 8
+	
 	bltz $v0, reset_error
 	
 reset_conf_found:
@@ -732,8 +789,185 @@ sq_done:
 	jr $ra
 
 check:
-	# insert code here
-	li $v0, 0XAAA  # replace this line
+	# int check(int row, int col, int value, byte err_color, int flag)
+	# a0: row (0-8)
+	# a1: col (0-8)
+	# a2: value (-1 to 9)
+	# a3: err_color (background color for conflicts)
+	# stack: flag (0=check only, 1=highlight conflicts)
+	
+	# save regs
+	addi $sp, $sp, -32
+	sw $ra, 28($sp)
+	sw $s0, 24($sp)
+	sw $s1, 20($sp)
+	sw $s2, 16($sp)
+	sw $s3, 12($sp)
+	sw $s4, 8($sp)
+	sw $s5, 4($sp)
+	sw $s6, 0($sp)
+	
+	# load flag from stack
+	lw $s5, 32($sp)
+	
+	# validate bounds
+	bltz $a0, check_error
+	li $t0, 8
+	bgt $a0, $t0, check_error
+	bltz $a1, check_error
+	bgt $a1, $t0, check_error
+	
+	# validate val
+	li $t0, -1
+	blt $a2, $t0, check_error
+	li $t0, 9
+	bgt $a2, $t0, check_error
+	
+	# validate err_color
+	li $t0, 0xF
+	bgtu $a3, $t0, check_error
+	
+	# save params
+	move $s0, $a0    # row
+	move $s1, $a1    # col
+	move $s2, $a2    # value
+	move $s3, $a3    # err_color
+	li $s4, 0        # conflict count
+	
+	# check row conflicts
+	move $a0, $s0    # row
+	move $a1, $s1    # col
+	move $a2, $s2    # value
+	li $a3, 0        # flag = 0 (check row)
+	jal rowColCheck
+	
+	# if conflict found
+	li $t0, -1
+	beq $v0, $t0, check_row_done
+	
+	# row conflict found
+	addi $s4, $s4, 1    # increment conflict count
+	
+	# if flag = 1
+	beqz $s5, check_row_done
+	
+	# save conflict position and highlight
+	move $s6, $v0
+	move $t7, $v1
+	
+	# get curr cell to preserve character
+	move $a0, $s6
+	move $a1, $t7
+	jal getCell
+	
+	# modify background color to err_color, keep foreground
+	andi $t0, $v0, 0xF  # current fg
+	sll $t1, $s3, 4     # err_color as bg
+	or $t2, $t1, $t0    # new color byte
+	
+	# set cell with new color
+	move $a0, $s6
+	move $a1, $t7
+	li $a2, -1
+	move $a3, $t2
+	jal setCell
+
+check_row_done:
+	# check col conflicts
+	move $a0, $s0
+	move $a1, $s1
+	move $a2, $s2
+	li $a3, 1
+	jal rowColCheck
+	
+	# if conflict found in col
+	li $t0, -1
+	beq $v0, $t0, check_col_done
+	
+	# column conflict found
+	addi $s4, $s4, 1 # increment cnt
+	
+	# if flag = 1
+	beqz $s5, check_col_done
+	
+	# save conflict position and highlight
+	move $s6, $v0
+	move $t7, $v1
+	
+	# get curr cell to preserve character
+	move $a0, $s6
+	move $a1, $t7
+	jal getCell
+	
+	# modify bg color to err_color, keep fg
+	andi $t0, $v0, 0xF  # curr fg
+	sll $t1, $s3, 4     # err_color as bg
+	or $t2, $t1, $t0    # new color byte
+	
+	# set cell with new color
+	move $a0, $s6
+	move $a1, $t7
+	li $a2, -1
+	move $a3, $t2
+	jal setCell
+
+check_col_done:
+	# check square conflicts
+	move $a0, $s0
+	move $a1, $s1
+	move $a2, $s2
+	jal squareCheck
+	
+	# if conflict found
+	li $t0, -1
+	beq $v0, $t0, check_square_done
+	
+	# square conflict found
+	addi $s4, $s4, 1    # increment conflict count
+	
+	# if flag = 1
+	beqz $s5, check_square_done
+	
+	# save conflict
+	move $s6, $v0       # conflict row
+	move $t7, $v1       # conflict col
+	
+	# get curr cell to preserve char
+	move $a0, $s6
+	move $a1, $t7
+	jal getCell
+	
+	# modify to err_color, change fg
+	andi $t0, $v0, 0xF  # curr fg
+	sll $t1, $s3, 4     # err_color as bg
+	or $t2, $t1, $t0    # new color byte
+	
+	# set cell with new color
+	move $a0, $s6
+	move $a1, $t7
+	li $a2, -1          # don't change char
+	move $a3, $t2
+	jal setCell
+
+check_square_done:
+	# return conflict cnt
+	move $v0, $s4
+	j check_done
+
+check_error:
+	li $v0, -1
+
+check_done:
+	# restore regs
+	lw $s6, 0($sp)
+	lw $s5, 4($sp)
+	lw $s4, 8($sp)
+	lw $s3, 12($sp)
+	lw $s2, 16($sp)
+	lw $s1, 20($sp)
+	lw $s0, 24($sp)
+	lw $ra, 28($sp)
+	addi $sp, $sp, 32
 	jr $ra
 
 makeMove:
