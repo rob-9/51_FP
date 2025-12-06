@@ -121,137 +121,120 @@ swb_diag2_done:
 
 
 saveBoard:
-	addi $sp, $sp, -36
-	sw $ra, 0($sp)
-	sw $s0, 4($sp)
-	sw $s1, 8($sp)
-	sw $s2, 12($sp)
-	sw $s3, 16($sp)
-	sw $s4, 20($sp)
-	sw $s5, 24($sp)
-	sw $s6, 28($sp)
-	sw $s7, 32($sp)
-	
+	addi $sp, $sp, -48
+	sw $ra, 44($sp)
+	sw $s0, 40($sp)
+	sw $s1, 36($sp)
+	sw $s2, 32($sp)
+	sw $s3, 28($sp)
+	sw $s4, 24($sp)
+	sw $s5, 20($sp)
+	sw $s6, 16($sp)
+	sw $s7, 12($sp)
+
 	move $s0, $a0
 	move $s1, $a1
-	
+
 	srl $s2, $s1, 8
-	andi $s2, $s2, 0xFF
-	andi $s3, $s1, 0xFF
-	
-	andi $s4, $s2, 0x0F
-	andi $s5, $s3, 0x0F
-	
+	andi $s2, $s2, 0xF
+	andi $s3, $s1, 0xF
+
 	li $v0, 13
 	move $a0, $s0
 	li $a1, 1
 	li $a2, 0
 	syscall
-	move $s6, $v0
-	bltz $s6, sb_error
-	
+	move $s4, $v0
+	bltz $s4, sb_error
+
+	li $s5, 0
+	li $s6, 0
 	li $s7, 0
-	li $t8, 0
-	
-	addi $sp, $sp, -8
-	li $t0, 0
-	
+
 sb_row_loop:
-	li $t1, 0
-	
+	li $s0, 0
+
 sb_col_loop:
-	move $a0, $t0
-	move $a1, $t1
-	
-	addi $sp, $sp, -8
-	sw $t0, 4($sp)
-	sw $t1, 0($sp)
-	
+	move $a0, $s7
+	move $a1, $s0
 	jal getCell
-	lw $t1, 0($sp)
-	lw $t0, 4($sp)
-	addi $sp, $sp, 8
-	
-	li $t2, -1
-	beq $v1, $t2, sb_error_close
+
+	li $t0, -1
+	beq $v1, $t0, sb_error_close
 	beqz $v1, sb_next_cell
-	
-	li $t2, 1
-	blt $v1, $t2, sb_error_close
-	li $t2, 9
-	bgt $v1, $t2, sb_error_close
-	
-	andi $t3, $v0, 0x0F
-	bne $t3, $s4, sb_check_game
-	li $t4, 'P'
-	addi $s7, $s7, 1
+
+	li $t0, 1
+	blt $v1, $t0, sb_error_close
+	li $t0, 9
+	bgt $v1, $t0, sb_error_close
+
+	andi $t0, $v0, 0xF
+	bne $t0, $s2, sb_check_game
+	li $t1, 'P'
+	addi $s5, $s5, 1
 	j sb_write_cell
-	
+
 sb_check_game:
-	bne $t3, $s5, sb_error_close
-	li $t4, 'G'
-	addi $t8, $t8, 1
+	bne $t0, $s3, sb_error_close
+	li $t1, 'G'
+	addi $s6, $s6, 1
 
 sb_write_cell:
-	addi $t5, $t0, 0x30
-	addi $t6, $t1, 0x41
-	addi $t7, $v1, 0x30
-	
-	move $t9, $sp
-	sb $t5, 0($t9)
-	sb $t6, 1($t9)
-	sb $t7, 2($t9)
-	sb $t4, 3($t9)
-	li $t5, '\n'
-	sb $t5, 4($t9)
-	
+	addi $t2, $s7, 0x30
+	addi $t3, $s0, 0x41
+	addi $t4, $v1, 0x30
+
+	sb $t2, 0($sp)
+	sb $t3, 1($sp)
+	sb $t4, 2($sp)
+	sb $t1, 3($sp)
+	li $t2, '\n'
+	sb $t2, 4($sp)
+
 	li $v0, 15
-	move $a0, $s6
-	move $a1, $t9
+	move $a0, $s4
+	move $a1, $sp
 	li $a2, 5
 	syscall
 	bltz $v0, sb_error_close
-	
+
 sb_next_cell:
-	addi $t1, $t1, 1
-	li $t2, 9
-	blt $t1, $t2, sb_col_loop
-	
-	addi $t0, $t0, 1
-	li $t2, 9
-	blt $t0, $t2, sb_row_loop
-	
+	addi $s0, $s0, 1
+	li $t0, 9
+	blt $s0, $t0, sb_col_loop
+
+	addi $s7, $s7, 1
+	li $t0, 9
+	blt $s7, $t0, sb_row_loop
+
 	li $v0, 16
-	move $a0, $s6
+	move $a0, $s4
 	syscall
-	
-	addi $sp, $sp, 8
-	
-	move $v0, $s7
-	move $v1, $t8
+
+	move $v0, $s5
+	move $v1, $s6
 	j sb_done
 
 sb_error_close:
 	li $v0, 16
-	move $a0, $s6
+	move $a0, $s4
 	syscall
-	addi $sp, $sp, 8
 
 sb_error:
 	li $v0, -1
 	li $v1, -1
 
 sb_done:
-	lw $ra, 0($sp)
-	lw $s0, 4($sp)
-	lw $s1, 8($sp)
-	lw $s2, 12($sp)
-	lw $s3, 16($sp)
-	lw $s4, 20($sp)
-	lw $s5, 24($sp)
-	lw $s6, 28($sp)
-	lw $s7, 32($sp)
-	addi $sp, $sp, 36
+	lw $ra, 44($sp)
+	lw $s0, 40($sp)
+	lw $s1, 36($sp)
+	lw $s2, 32($sp)
+	lw $s3, 28($sp)
+	lw $s4, 24($sp)
+	lw $s5, 20($sp)
+	lw $s6, 16($sp)
+	lw $s7, 12($sp)
+	addi $sp, $sp, 48
 	jr $ra
 
 hint:
@@ -271,8 +254,7 @@ hint:
 	move $s0, $a0    # move string
 	move $s1, $a1    # playerColors
 	
-	# extract preset fg color
-	srl $s2, $s1, 4
+	srl $s2, $s1, 8
 	andi $s2, $s2, 0xF
 	
 	# parse move to get row, col using getBoardInfo
