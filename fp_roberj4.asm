@@ -203,67 +203,56 @@ reset_clear_all_col:
 	j reset_success
 	
 reset_preset_only:
-	# extract colors from curColor
-	andi $t0, $s0, 0xF    # gc_fg
+	andi $t0, $s0, 0xF
 	srl $t1, $s0, 4
-	andi $t1, $t1, 0xF    # gc_bg
+	andi $t1, $t1, 0xF
 	sll $t2, $t1, 4
-	or $t2, $t2, $t0      # gc color byte
-	
-	li $s3, 0        # row
-reset_preset_row:
-	li $s4, 0        # col
-reset_preset_col:
-	# save loop counters before function call
+	or $t2, $t2, $t0
+
 	addi $sp, $sp, -8
-	sw $s3, 4($sp)
-	sw $s4, 0($sp)
-	
-	# get current cell
+	sw $t0, 4($sp)
+	sw $t2, 0($sp)
+
+	li $s3, 0
+reset_preset_row:
+	li $s4, 0
+reset_preset_col:
 	move $a0, $s3
 	move $a1, $s4
 	jal getCell
-	
-	# restore loop counters
-	lw $s4, 0($sp)
-	lw $s3, 4($sp)
-	addi $sp, $sp, 8
-	
-	bltz $v1, reset_error
-	
-	# check if game cell (fg matches gc_fg)
-	andi $t3, $v0, 0xF    # current fg
-	beq $t3, $t0, reset_clear_game_cell
-	j reset_preset_next
-	
-reset_clear_game_cell:
-	# save loop counters before function call
-	addi $sp, $sp, -8
-	sw $s3, 4($sp)
-	sw $s4, 0($sp)
-	
+
+	bltz $v1, reset_preset_error_cleanup
+
+	lw $t0, 4($sp)
+
+	andi $t3, $v0, 0xF
+	bne $t3, $t0, reset_preset_next
+
+	lw $t2, 0($sp)
+
 	move $a0, $s3
 	move $a1, $s4
-	li $a2, 0        # clear
-	move $a3, $t2    # gc color
+	li $a2, 0
+	move $a3, $t2
 	jal setCell
-	
-	# restore loop counters
-	lw $s4, 0($sp)
-	lw $s3, 4($sp)
-	addi $sp, $sp, 8
-	
-	bltz $v0, reset_error
-	
+
+	bltz $v0, reset_preset_error_cleanup
+
 reset_preset_next:
 	addi $s4, $s4, 1
 	li $t1, 9
 	blt $s4, $t1, reset_preset_col
-	
+
 	addi $s3, $s3, 1
 	li $t1, 9
 	blt $s3, $t1, reset_preset_row
+
+	addi $sp, $sp, 8
 	j reset_success
+
+reset_preset_error_cleanup:
+	addi $sp, $sp, 8
+	j reset_error
 	
 reset_conflicts:
 	# search for err_bg cells 
@@ -442,17 +431,28 @@ rf_preset:
 	or $t3, $t3, $t1       # pc color byte
 	
 rf_setcell:
-	# set cell
-	move $a0, $s4    # row
-	move $a1, $s5    # col
-	move $a2, $s6    # val
-	move $a3, $t3    # color
+	addi $sp, $sp, -4
+	sw $t3, 0($sp)
+
+	move $a0, $s4
+	move $a1, $s5
+	jal getCell
+
+	lw $t3, 0($sp)
+	addi $sp, $sp, 4
+
+	move $t4, $v1
+
+	move $a0, $s4
+	move $a1, $s5
+	move $a2, $s6
+	move $a3, $t3
 	jal setCell
-	bltz $v0, rf_error
-	
-	# increment cnt
+	bltz $v0, rf_error_file
+
+	bnez $t4, rf_loop
 	addi $s2, $s2, 1
-	
+
 	j rf_loop
 	
 rf_done:
@@ -467,14 +467,17 @@ rf_done:
 	move $v0, $s2
 	j rf_cleanup
 	
-rf_error:
-	# close file if open
+rf_error_file:
 	move $a0, $s3
 	li $v0, 16
 	syscall
-	
+
 	addi $sp, $sp, 8
-	
+
+	li $v0, -1
+	j rf_cleanup
+
+rf_error:
 	li $v0, -1
 	
 rf_cleanup:
@@ -747,26 +750,18 @@ sq_done:
 	jr $ra
 
 check:
-	# int check(int row, int col, int value, byte err_color, int flag)
-	# a0: row (0-8)
-	# a1: col (0-8)
-	# a2: value (-1 to 9)
-	# a3: err_color (background color for conflicts)
-	# stack: flag (0=check only, 1=highlight conflicts)
-	
-	# save regs
-	addi $sp, $sp, -32
-	sw $ra, 28($sp)
-	sw $s0, 24($sp)
-	sw $s1, 20($sp)
-	sw $s2, 16($sp)
-	sw $s3, 12($sp)
-	sw $s4, 8($sp)
-	sw $s5, 4($sp)
-	sw $s6, 0($sp)
-	
-	# load flag from stack
-	lw $s5, 32($sp)
+	addi $sp, $sp, -36
+	sw $ra, 32($sp)
+	sw $s0, 28($sp)
+	sw $s1, 24($sp)
+	sw $s2, 20($sp)
+	sw $s3, 16($sp)
+	sw $s4, 12($sp)
+	sw $s5, 8($sp)
+	sw $s6, 4($sp)
+	sw $s7, 0($sp)
+
+	lw $s5, 36($sp)
 	
 	# validate bounds
 	bltz $a0, check_error
@@ -809,106 +804,85 @@ check:
 	# if flag = 1
 	beqz $s5, check_row_done
 	
-	# save conflict position and highlight
 	move $s6, $v0
-	move $t7, $v1
-	
-	# get curr cell to preserve character
+	move $s7, $v1
+
 	move $a0, $s6
-	move $a1, $t7
+	move $a1, $s7
 	jal getCell
-	
-	# modify background color to err_color, keep foreground
-	andi $t0, $v0, 0xF  # current fg
-	sll $t1, $s3, 4     # err_color as bg
-	or $t2, $t1, $t0    # new color byte
-	
-	# set cell with new color
+
+	andi $t0, $v0, 0xF
+	sll $t1, $s3, 4
+	or $t2, $t1, $t0
+
 	move $a0, $s6
-	move $a1, $t7
+	move $a1, $s7
 	li $a2, -1
 	move $a3, $t2
 	jal setCell
 
 check_row_done:
-	# check col conflicts
 	move $a0, $s0
 	move $a1, $s1
 	move $a2, $s2
 	li $a3, 1
 	jal rowColCheck
-	
-	# if conflict found in col
+
 	li $t0, -1
 	beq $v0, $t0, check_col_done
-	
-	# column conflict found
-	addi $s4, $s4, 1 # increment cnt
-	
-	# if flag = 1
+
+	addi $s4, $s4, 1
+
 	beqz $s5, check_col_done
-	
-	# save conflict position and highlight
+
 	move $s6, $v0
-	move $t7, $v1
-	
-	# get curr cell to preserve character
+	move $s7, $v1
+
 	move $a0, $s6
-	move $a1, $t7
+	move $a1, $s7
 	jal getCell
-	
-	# modify bg color to err_color, keep fg
-	andi $t0, $v0, 0xF  # curr fg
-	sll $t1, $s3, 4     # err_color as bg
-	or $t2, $t1, $t0    # new color byte
-	
-	# set cell with new color
+
+	andi $t0, $v0, 0xF
+	sll $t1, $s3, 4
+	or $t2, $t1, $t0
+
 	move $a0, $s6
-	move $a1, $t7
+	move $a1, $s7
 	li $a2, -1
 	move $a3, $t2
 	jal setCell
 
 check_col_done:
-	# check square conflicts
 	move $a0, $s0
 	move $a1, $s1
 	move $a2, $s2
 	jal squareCheck
-	
-	# if conflict found
+
 	li $t0, -1
 	beq $v0, $t0, check_square_done
-	
-	# square conflict found
-	addi $s4, $s4, 1    # increment conflict count
-	
-	# if flag = 1
+
+	addi $s4, $s4, 1
+
 	beqz $s5, check_square_done
-	
-	# save conflict
-	move $s6, $v0       # conflict row
-	move $t7, $v1       # conflict col
-	
-	# get curr cell to preserve char
+
+	move $s6, $v0
+	move $s7, $v1
+
 	move $a0, $s6
-	move $a1, $t7
+	move $a1, $s7
 	jal getCell
-	
-	# modify to err_color, change fg
-	andi $t0, $v0, 0xF  # curr fg
-	sll $t1, $s3, 4     # err_color as bg
-	or $t2, $t1, $t0    # new color byte
-	
-	# set cell with new color
+
+	andi $t0, $v0, 0xF
+	sll $t1, $s3, 4
+	or $t2, $t1, $t0
+
 	move $a0, $s6
-	move $a1, $t7
-	li $a2, -1          # don't change char
+	move $a1, $s7
+	li $a2, -1
 	move $a3, $t2
 	jal setCell
 
 check_square_done:
-	# return conflict cnt
 	move $v0, $s4
 	j check_done
 
@@ -916,16 +890,16 @@ check_error:
 	li $v0, -1
 
 check_done:
-	# restore regs
-	lw $s6, 0($sp)
-	lw $s5, 4($sp)
-	lw $s4, 8($sp)
-	lw $s3, 12($sp)
-	lw $s2, 16($sp)
-	lw $s1, 20($sp)
-	lw $s0, 24($sp)
-	lw $ra, 28($sp)
-	addi $sp, $sp, 32
+	lw $s7, 0($sp)
+	lw $s6, 4($sp)
+	lw $s5, 8($sp)
+	lw $s4, 12($sp)
+	lw $s3, 16($sp)
+	lw $s2, 20($sp)
+	lw $s1, 24($sp)
+	lw $s0, 28($sp)
+	lw $ra, 32($sp)
+	addi $sp, $sp, 36
 	jr $ra
 
 makeMove:
