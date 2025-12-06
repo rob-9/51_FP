@@ -266,111 +266,69 @@ reset_preset_next:
 	j reset_success
 	
 reset_conflicts:
-	# search column-major for err_bg cells
-	li $s3, 0        # col
-	li $t0, 0        # conflicts found
+	# search for err_bg cells 
+	li $t0, 0 # conflicts found
+	li $s4, 0 # col
+	
 reset_conf_col:
-	li $s4, 0        # row
+	li $s3, 0 # row
+	
 reset_conf_row:
-	# save loop counters before function call  
-	addi $sp, $sp, -8
-	sw $s3, 4($sp)
-	sw $s4, 0($sp)
+	# calculate memory addr
+	li $t1, 9
+	mul $t2, $s3, $t1     # row * 9
+	add $t2, $t2, $s4     # row * 9 + col
+	sll $t2, $t2, 1       # (row * 9 + col) * 2
+	lui $t3, 0xffff
+	add $t3, $t3, $t2     # final addr
 	
-	# get cell
-	move $a0, $s4
-	move $a1, $s3
-	jal getCell
+	# load color byte directly
+	lbu $t4, 1($t3)
+	andi $t4, $t4, 0xFF
+	srl $t5, $t4, 4  # bg color
+	bne $t5, $s1, reset_conf_next  # not err_bg, continue
 	
-	# restore loop counters
-	lw $s4, 0($sp)
-	lw $s3, 4($sp)
-	addi $sp, $sp, 8
+	# found conflict cell, cnt
+	addi $t0, $t0, 1
 	
-	bltz $v1, reset_error
+	# determine p/gc by fg color
+	andi $t5, $t4, 0xF    # current fg
+	srl $t6, $s0, 8
+	andi $t6, $t6, 0xF    # pc_fg from curColor
+	andi $t7, $s0, 0xF    # gc_fg from curColor
 	
-	# check if bg matches err_bg
-	srl $t1, $v0, 4
-	andi $t1, $t1, 0xF
-	bne $t1, $s1, reset_conf_next
-	
-	# found conflict cell - determine type & reset
-	andi $t2, $v0, 0xF    # current fg
-	
-	# extract gc_fg and pc_fg from curColor
-	andi $t3, $s0, 0xF    # gc_fg
-	srl $t4, $s0, 8
-	andi $t4, $t4, 0xF    # pc_fg
-	
-	beq $t2, $t3, reset_conf_game
-	beq $t2, $t4, reset_conf_preset
+	beq $t5, $t6, reset_conf_is_preset
+	beq $t5, $t7, reset_conf_is_game
 	j reset_error
 	
-reset_conf_game:
-	# reset game cell
-	srl $t5, $s0, 4
-	andi $t5, $t5, 0xF    # gc_bg
-	sll $t6, $t5, 4
-	or $t6, $t6, $t3      # gc color
+reset_conf_is_preset:
+	# reset pc color
+	srl $t8, $s0, 12
+	andi $t8, $t8, 0xF
+	sll $t9, $t8, 4
+	or $t9, $t9, $t6
+	sb $t9, 1($t3)
+	beq $t0, $s2, reset_success
+	j reset_conf_next
 	
-	# save loop counters before function call
-	addi $sp, $sp, -8
-	sw $s3, 4($sp)
-	sw $s4, 0($sp)
-	
-	move $a0, $s4
-	move $a1, $s3
-	li $a2, 0
-	move $a3, $t6
-	jal setCell
-	
-	# restore loop counters
-	lw $s4, 0($sp)
-	lw $s3, 4($sp)
-	addi $sp, $sp, 8
-	
-	bltz $v0, reset_error
-	j reset_conf_found
-	
-reset_conf_preset:
-	# reset preset cell
-	srl $t5, $s0, 12
-	andi $t5, $t5, 0xF    # pc_bg
-	sll $t6, $t5, 4
-	or $t6, $t6, $t4      # pc color
-	
-	# save loop counters before function call
-	addi $sp, $sp, -8
-	sw $s3, 4($sp)
-	sw $s4, 0($sp)
-	
-	move $a0, $s4
-	move $a1, $s3
-	li $a2, -1
-	move $a3, $t6
-	jal setCell
-	
-	# restore loop counters
-	lw $s4, 0($sp)
-	lw $s3, 4($sp)
-	addi $sp, $sp, 8
-	
-	bltz $v0, reset_error
-	
-reset_conf_found:
-	addi $t0, $t0, 1
+reset_conf_is_game:
+	# reset gc color  
+	srl $t8, $s0, 4
+	andi $t8, $t8, 0xF
+	sll $t9, $t8, 4
+	or $t9, $t9, $t7
+	sb $t9, 1($t3) 
 	beq $t0, $s2, reset_success
 	
 reset_conf_next:
-	addi $s4, $s4, 1
-	li $t1, 9
-	blt $s4, $t1, reset_conf_row
-	
 	addi $s3, $s3, 1
 	li $t1, 9
-	blt $s3, $t1, reset_conf_col
+	blt $s3, $t1, reset_conf_row
 	
-	# not enough conflicts found
+	addi $s4, $s4, 1
+	li $t1, 9
+	blt $s4, $t1, reset_conf_col
+	
 	j reset_error
 	
 reset_success:
